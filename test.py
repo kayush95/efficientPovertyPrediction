@@ -1,12 +1,4 @@
-"""
-This function pretrains the policy network using the high resolution classifier
-output-explained as pretraining the policy network in the paper.
-How to Run on Different Benchmarks:
-    python pretrain.py --model policy_satellite
-       --lr 1e-6
-       --cv_dir cv
-       --batch_size 1
-"""
+
 
 import os
 from tensorboard_logger import configure, log_value
@@ -350,7 +342,6 @@ _, _, agent = utils.get_model(args.model)
 # Save the args to the checkpoint directory
 configure(args.cv_dir+'/log', flush_secs=5)
 
-# ------- PatchDrop Action Space for fMoW -----------------------
 num_patches = 289 # Fixed in the paper, but can be changed
 mappings, img_size, interval = utils.action_space_model(args.model.split('_')[1])
 
