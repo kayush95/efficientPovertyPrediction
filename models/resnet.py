@@ -200,12 +200,8 @@ class Policy224(nn.Module):
         self.features = FlatResNet224(base.BasicBlock, layer_config, num_classes=1000)
         self.features.avgpool = nn.AvgPool2d(4)
         self.feat_dim = self.features.fc.weight.data.shape[1]
-        # print('feat_dim', self.feat_dim)
-        # print('features.fc', self.features.fc)
         self.features.fc = nn.Sequential()
-        # print('features.fc', self.features.fc)
         self.tile_feat = nn.Linear(self.feat_dim, num_feat)
-        # print('tile_feat', self.tile_feat)
         self.logit = nn.Linear(num_blocks*num_feat, num_blocks)
         self.vnet = nn.Linear(num_blocks*num_feat, 1)
 
@@ -216,7 +212,6 @@ class Policy224(nn.Module):
 
     def forward(self, x):
         tile_all = []
-        # print('x.shape', x.shape)
         for tile_idx in range(x.shape[1]):
             x1 = x[:, tile_idx, :, :, :]
             x1 = F.avg_pool2d(x1, 2)
@@ -225,9 +220,7 @@ class Policy224(nn.Module):
             tile_all.append(x1)
 
         tile_all = torch.stack(tile_all, dim=1)
-        # print('tile_all.shape', tile_all.shape)
         tile_all = torch.flatten(tile_all, start_dim=1, end_dim=-1)
-        # print('tile_all.shape', tile_all.shape)
 
         value = self.vnet(tile_all)
         probs = torch.sigmoid(self.logit(tile_all))      
@@ -240,22 +233,16 @@ class Policy224GRU(nn.Module):
         self.features = FlatResNet224(base.BasicBlock, layer_config, num_classes=1000)
         self.features.avgpool = nn.AvgPool2d(4)
         self.feat_dim = self.features.fc.weight.data.shape[1]
-        # print('feat_dim', self.feat_dim)
-        # print('features.fc', self.features.fc)
         self.features.fc = nn.Sequential()
-        # print('features.fc', self.features.fc)
         self.tile_feat = nn.Linear(self.feat_dim, num_feat)
-        # print('tile_feat', self.tile_feat)
         self.logit = nn.Linear(num_blocks*num_feat, num_blocks)
         self.vnet = nn.Linear(num_blocks*num_feat, 1)
 
 
         self.input_dim = 128
         self.output_dim = 1
-        # self.drop_prob = 0.2
         self.hidden_dim = 64
         self.n_layers = 1
-        # self.gru = nn.GRU(self.input_dim, self.hidden_dim, self.n_layers, batch_first=True, dropout=self.drop_prob)
         self.gru = nn.GRU(self.input_dim, self.hidden_dim, self.n_layers, batch_first=True)
         self.fc = nn.Linear(self.hidden_dim, self.output_dim)
         self.relu = nn.ReLU()
@@ -268,15 +255,10 @@ class Policy224GRU(nn.Module):
 
     def init_hidden(self, batch_size):
         hidden = torch.zeros(self.n_layers, int(batch_size/4), self.hidden_dim).cuda()
-        # hidden = torch.zeros(batch_size, self.n_layers, self.hidden_dim).cuda()
-        # hidden = torch.zeros(self.n_layers, batch_size, self.hidden_dim).cuda()
-        # hidden = torch.zeros(self.n_layers, 1, self.hidden_dim).cuda()
         return hidden
 
-    # def forward(self, x, h):
     def forward(self, x):
         tile_all = []
-        # print('x.shape ascs', x.shape)
         for tile_idx in range(x.shape[1]):
             x1 = x[:, tile_idx, :, :, :]
             x1 = F.avg_pool2d(x1, 2)
@@ -284,18 +266,11 @@ class Policy224GRU(nn.Module):
             x1 = self.tile_feat(x1)
             tile_all.append(x1)
 
-        # print('tile_all.shape', tile_all.shape)
         tile_all = torch.stack(tile_all, dim=1)
-        # print('tile_all.shape', tile_all.shape)
         self.gru.flatten_parameters()
-        # out, h = self.gru(tile_all, h)
         out, h = self.gru(tile_all)
-        # print('out.shape', out.shape)
-        # print('h', h.shape)
         out = self.fc(self.relu(out))
-        # print('out.shape', out.shape)
         probs = torch.sigmoid(out).squeeze(2)  
-        # print('probs.shape', probs.shape)  
         value = None  
         return probs, value
 
@@ -310,21 +285,8 @@ class PolicySeq(nn.Module):
 
         num_ftrs = self.features.fc.in_features
         self.features.fc = nn.Linear(num_ftrs, num_output)
-        
-        # self.gamma = gamma
-        
-        # # Episode policy and reward history 
-        # self.policy_history = Variable(torch.Tensor()) 
-        # self.reward_episode = []
-        # # Overall reward and loss history
-        # self.reward_history = []
-        # self.loss_history = []
 
     def forward(self, x):    
-        # model = torch.nn.Sequential(
-        #     self.features,
-        #     nn.Softmax(dim=-1)
-        # )
         x = self.features(x)
         probs = torch.sigmoid(x)
         return probs

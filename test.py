@@ -54,9 +54,6 @@ def train(epoch):
     mse, rewards, rewards_baseline, policies = [], [], [], []
     counts_diff = []
     for batch_idx, (inputs, targets, counts) in tqdm.tqdm(enumerate(trainloader), total=len(trainloader)):
-        # print('inputs.shape', inputs.shape)
-        # print('targets.shape', targets.shape)
-        # print('counts.shape', counts.shape)
         batch_size = inputs.shape[0]
 
         if not args.parallel:
@@ -64,80 +61,52 @@ def train(epoch):
 
         inputs = inputs.squeeze(0)
         counts = counts.squeeze(0)
-        # print('inputs.shape', inputs.shape)
-        # print('counts.shape', counts.shape)
-
         probs = agent(inputs)
         probs = probs*args.alpha + (1-args.alpha) * (1-probs)
 
-        # print('probs', probs.shape)
         # # Sample the policies from the Bernoulli distribution characterized by agent's output
         distr = Bernoulli(probs)
         policy_sample = distr.sample()
 
-        # print('policy_sample.shape', policy_sample.shape)
         # Test time policy - used as baseline policy in the training step
         policy_map = probs.data.clone()
         policy_map[policy_map<0.5] = 0.0
         policy_map[policy_map>=0.5] = 1.0
         policy_map = Variable(policy_map)
 
-        # print('policy_map.shape', policy_map.shape)
-
         policy_hr = policy_map.data.clone()
-        # print(policy_hr)
         policy_hr[:] = 1.0
-        # print(policy_hr)
         policy_hr = Variable(policy_hr)
-
-        # print('policy_hr.shape', policy_hr.shape)
-        # print('policy_hr', policy_hr)
 
         # Agent sampled high resolution images
         counts_map = utils.agent_chosen_input_counts(counts, policy_map)
         counts_sample = utils.agent_chosen_input_counts(counts, policy_sample.int())
         counts_hr = utils.agent_chosen_input_counts(counts, policy_hr)
 
-        # print('counts_map.shape', counts_map.shape)
-
-        # gbdt_sc_map, _ = utils.gbdt_score(counts_map, targets)
-        # gbdt_sc_sample, _ = utils.gbdt_score(counts_sample, targets)
         gbdt_sc_map = None
         gbdt_sc_sample = None
-
-        # print('gbdt_sc_map.shape', gbdt_sc_map.shape)
 
         # Find the reward for baseline and sampled policy
         reward_map, counts_diff_map = utils.compute_reward_gbdt(gbdt_sc_map, policy_map.data, counts_map, counts_hr)
         reward_sample, counts_diff_sample  = utils.compute_reward_gbdt(gbdt_sc_sample, policy_sample.data, counts_sample, counts_hr)
-        # print('counts_diff_sample', counts_diff_sample.data)
-        # print('reward_map.shape', reward_map.shape)
-        # sys.exit()
         advantage = reward_sample.cuda().float() - reward_map.cuda().float()
 
         # Find the loss for only the policy network
         loss = -distr.log_prob(policy_sample)
-        # print('loss.shape', loss.shape)
         loss = loss * Variable(advantage).expand_as(policy_sample)
-        # print('loss.shape', loss.shape)
         loss = loss.mean()
 
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
 
-        # mse.append(torch.from_numpy(np.array([gbdt_sc_sample])))
-        # mse.append(gbdt_sc_sample.cpu())
-
         counts_diff_sample_all = counts_diff_sample.sum(0).unsqueeze(0)
-        # print('counts_diff_sample_all', counts_diff_sample_all.shape)
 
         counts_diff.append(counts_diff_sample_all)
         rewards.append(reward_sample.cpu())
         rewards_baseline.append(reward_map.cpu())
 
         plcy = policy_sample.view(1, -1)
-        # print('plcy', plcy.shape)
         policies.append(plcy.data.cpu())
 
     mse, reward, sparsity, variance, policy_set, counts_diff = utils.performance_stats_gbdt(policies, rewards, mse, counts_diff)
@@ -157,29 +126,14 @@ def plot(p_full, c_full, thresh=0.9, season='wet', obj='all'):
     plt.scatter(c_full, p_full, color='red', alpha=0.5, s=1)
     plt.xlabel('number of {}'.format(obj))
     plt.ylabel('probability')
-    # plt.show()
     plt.savefig('prob_vs_count_{}_{}_thresh={}.png'.format(obj, season, thresh))
 
 def plot_load():
     p_full = np.load('p_full.npy')
     c_full = np.load('c_full.npy')
-
-    # p_full = p_full[0]
-    # c_full = c_full[0]
-
-    # p_full_new = []
-    # c_full_new = []
-    # print(len(p_full))
-    # for i in range(len(p_full)):
-    #     if (p_full[i] > 0.5 and c_full[i] > 10) or (p_full[i] < 0.5 and c_full[i] < 10):
-    #         p_full_new.append(p_full[i])
-    #         c_full_new.append(c_full[i])
-
-    # plt.scatter(c_full_new, p_full_new, color='red', alpha=0.5, s=1)
     plt.scatter(c_full, p_full, color='red', alpha=0.5, s=1)
     plt.xlabel('number of trucks')
     plt.ylabel('probability')
-    # plt.show()
     plt.savefig('prob_vs_count_trucks.png')
 
 
@@ -202,94 +156,42 @@ def test(epoch):
         if not args.parallel:
             inputs = inputs.cuda()
 
-        # print(counts.shape)
-        # counts_check = counts.sum(dim=2)
-        # print(counts_check)
-        # counts_check[counts_check>0] = 1
-        # print(counts_check)
-        # print(counts_check.sum(dim=1))
-        # sys.exit()
-
         inputs = inputs.squeeze(0)
         counts = counts.squeeze(0)
 
         probs = agent(inputs)
 
-        ################### probs_vs_count study
-        # counts_full, policy_full = utils.prob_counts(counts, probs)
-        # c_full.append(counts_full)
-        # p_full.append(policy_full)
-        # del counts_full
-        # del policy_full
-        ###################
-
-        # print('probs', probs.shape)
-        # print('probs', probs)
         # Sample the policy from the agents output
         policy = probs.data.clone()
         policy[policy<0.5] = 0.0
         policy[policy>=0.5] = 1.0
         policy = Variable(policy)
-        # print(policy)
 
-        # print(cluster[0], policy)
         dct[str(cluster[0])] = policy.cpu().numpy()
-        # sys.exit()
         policy_hr = probs.data.clone()
         policy_hr[:] = 1.0
         policy_hr = Variable(policy_hr)
-        # print('policy_hr', policy_hr)
 
-    
         counts_map = utils.agent_chosen_input_counts(counts, policy)
         counts_hr = utils.agent_chosen_input_counts(counts, policy_hr)
-        # counts_half = utils.agent_chosen_input_counts(counts, policy_half)
 
-        # print('counts_map', counts_map.shape)
         counts_map_all = counts_map.sum(0).unsqueeze(0)
         counts_hr_all = counts_hr.sum(0).unsqueeze(0)
         classwise_counts_diff.append(abs(counts_map_all - counts_hr_all))
-        # classwise_counts_diff.append(abs(counts_hr_all))
-        # print('counts_map_all', counts_map_all.shape)
-
-        ############ SHAP study
-        # shap_counts = counts_map.sum(0).detach().cpu().numpy()
-        # study[int(cluster[0])] = shap_counts
-        ############
 
         gbdt_sc_map, y_pred = utils.gbdt_score(counts_map_all, targets)
 
-        # gbdt_sc_hr, y_pred = utils.gbdt_score(counts_hr, targets)
-        # print('y_pred', y_pred)
-        # print('targets', targets.numpy())
         y_preds += list(y_pred)
         y_true += list(targets.numpy())
-        # print('y_preds', y_preds)
-        # print('y_true', y_true)
 
         reward, counts_diff_map = utils.compute_reward_gbdt(gbdt_sc_map, policy.data, counts_map, counts_hr)
-        # reward_half, counts_diff_map_half = utils.compute_reward_gbdt(gbdt_sc_map, policy_half.data, counts_half, counts_hr)
-        # print('counts_diff_map', counts_diff_map)
 
         counts_diff_map_all = counts_diff_map.sum(0).unsqueeze(0)
         counts_diff.append(counts_diff_map_all)
         rewards.append(reward)
-        # rewards_half.append(reward_half)
         plcy = policy.view(1, -1)
         policies.append(plcy.data)
-        # mse.append(torch.from_numpy(np.array([gbdt_sc_map])))
         mse.append(gbdt_sc_map.cpu())
-
-
-    ################### probs_vs_count study
-    # p_full = torch.cat(p_full, 1).cpu().numpy()
-    # c_full = torch.cat(c_full, 1).cpu().numpy()
-    # plot(p_full, c_full)
-    ###################
-
-    ################### SHAP study
-    # np.save('shap_study_dry.npy', study)
-    ###################
 
     np.save('selections_wetseason_train.npy', dct)
     classwise_counts_diff = torch.cat(classwise_counts_diff, 0)
@@ -300,20 +202,14 @@ def test(epoch):
     y_preds = [float(i) for i in y_preds]
     print('y_true:', y_true)
     print('y_preds:', y_preds)
-    # print(y_preds)
-    # print(y_true)
-    # print('len(y_true)', len(y_true))
-    # print('len(y_pred)', len(y_preds))
-    # print('len(policies)', len(policies))
-    # print(policies)
+
     r2 = r2_score(y_true, y_preds) 
     pearson = pearsonr(y_true, y_preds) 
     print('Pearson r:', pearson[0])
     mse, reward, sparsity, variance, policy_set, counts_diff = utils.performance_stats_gbdt(policies, rewards, mse, counts_diff)
 
     print('Test - Mse: %.3f | R2: %.3f | Rw: %.2E | S: %.3f | V: %.3f | #: %d | Diff: %.3f'%(mse, r2, reward, sparsity, variance, len(policy_set), counts_diff))
-    # sys.exit()
-    # log_value('test_rewards_objects', rewards_half, epoch)
+
     log_value('test_mse', mse, epoch)
     log_value('test_r2', r2, epoch)
     log_value('test_reward', reward, epoch)
@@ -331,7 +227,6 @@ def test(epoch):
       'mse': mse,
       'r2': r2
     }
-    # torch.save(state, args.cv_dir+'/ckpt_E_%d_M_%.3f_r2_%.3f_R_%.2E_S_%.3f'%(epoch, mse, r2, reward, sparsity))
 
 #--------------------------------------------------------------------------------------------------------#
 trainset, testset = utils.get_dataset(args.model, args.data_dir)
@@ -353,13 +248,6 @@ if args.load is not None:
     start_epoch = checkpoint['epoch'] + 1
     print('loaded agent from', args.load)
 
-# if args.ckpt_hr_cl is not None:
-#     checkpoint = torch.load(args.ckpt_hr_cl)
-#     if args.model.split('_')[1] == 'C10' or args.model.split('_')[1] == 'C100':
-#         rnet.load_state_dict(checkpoint['state_dict'])
-#     else:
-#         utils.load_weights_to_flatresnet(checkpoint, rnet)
-#     print('loaded the high resolution classifier')
 
 # Parallelize the models if multiple GPUs available - Important for Large Batch Size
 if args.parallel:
@@ -371,14 +259,5 @@ agent.cuda() # Only agent is updated
 optimizer = optim.Adam(agent.parameters(), lr=args.lr)
 lr_scheduler = optim.lr_scheduler.MultiStepLR(optimizer, [600])
 
-# for epoch in range(start_epoch, start_epoch+args.max_epochs+1):
-#     train(epoch)
-#     if epoch % 5 == 0:
-#         test(epoch)
-#     if epoch % 20 == 0:
-#         if args.alpha < 0.95:
-#             args.alpha = args.alpha + 0.05
-#     lr_scheduler.step()
 
 test(1)
-# plot_load()

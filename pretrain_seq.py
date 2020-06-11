@@ -46,9 +46,7 @@ def train(epoch):
     mse, rewards, rewards_baseline, policies = [], [], [], []
     counts_diff = []
     for batch_idx, (inputs, targets, counts, cluster) in tqdm.tqdm(enumerate(trainloader), total=len(trainloader)):
-        # print('inputs.shape', inputs.shape)
-        # print('targets.shape', targets.shape)
-        # print('counts.shape', counts.shape)
+
         batch_size = inputs.shape[0]
 
         if not args.parallel:
@@ -56,80 +54,50 @@ def train(epoch):
 
         inputs = inputs.squeeze(0)
         counts = counts.squeeze(0)
-        # print('inputs.shape', inputs.shape)
-        # print('counts.shape', counts.shape)
 
         probs = agent(inputs)
         probs = probs*args.alpha + (1-args.alpha) * (1-probs)
-
-        # print('probs', probs.shape)
-        # # Sample the policies from the Bernoulli distribution characterized by agent's output
         distr = Bernoulli(probs)
         policy_sample = distr.sample()
 
-        # print('policy_sample.shape', policy_sample.shape)
-        # Test time policy - used as baseline policy in the training step
         policy_map = probs.data.clone()
         policy_map[policy_map<0.5] = 0.0
         policy_map[policy_map>=0.5] = 1.0
         policy_map = Variable(policy_map)
 
-        # print('policy_map.shape', policy_map.shape)
 
         policy_hr = policy_map.data.clone()
-        # print(policy_hr)
         policy_hr[:] = 1.0
-        # print(policy_hr)
         policy_hr = Variable(policy_hr)
-
-        # print('policy_hr.shape', policy_hr.shape)
-        # print('policy_hr', policy_hr)
 
         # Agent sampled high resolution images
         counts_map = utils.agent_chosen_input_counts(counts, policy_map)
         counts_sample = utils.agent_chosen_input_counts(counts, policy_sample.int())
         counts_hr = utils.agent_chosen_input_counts(counts, policy_hr)
-
-        # print('counts_map.shape', counts_map.shape)
-
-        # gbdt_sc_map, _ = utils.gbdt_score(counts_map, targets)
-        # gbdt_sc_sample, _ = utils.gbdt_score(counts_sample, targets)
         gbdt_sc_map = None
         gbdt_sc_sample = None
-
-        # print('gbdt_sc_map.shape', gbdt_sc_map.shape)
 
         # Find the reward for baseline and sampled policy
         reward_map, counts_diff_map = utils.compute_reward_gbdt(gbdt_sc_map, policy_map.data, counts_map, counts_hr)
         reward_sample, counts_diff_sample  = utils.compute_reward_gbdt(gbdt_sc_sample, policy_sample.data, counts_sample, counts_hr)
-        # print('counts_diff_sample', counts_diff_sample.data)
-        # print('reward_map.shape', reward_map.shape)
-        # sys.exit()
+
         advantage = reward_sample.cuda().float() - reward_map.cuda().float()
 
-        # Find the loss for only the policy network
         loss = -distr.log_prob(policy_sample)
-        # print('loss.shape', loss.shape)
         loss = loss * Variable(advantage).expand_as(policy_sample)
-        # print('loss.shape', loss.shape)
         loss = loss.mean()
 
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
 
-        # mse.append(torch.from_numpy(np.array([gbdt_sc_sample])))
-        # mse.append(gbdt_sc_sample.cpu())
-
         counts_diff_sample_all = counts_diff_sample.sum(0).unsqueeze(0)
-        # print('counts_diff_sample_all', counts_diff_sample_all.shape)
 
         counts_diff.append(counts_diff_sample_all)
         rewards.append(reward_sample.cpu())
         rewards_baseline.append(reward_map.cpu())
 
         plcy = policy_sample.view(1, -1)
-        # print('plcy', plcy.shape)
         policies.append(plcy.data.cpu())
 
     mse, reward, sparsity, variance, policy_set, counts_diff = utils.performance_stats_gbdt(policies, rewards, mse, counts_diff)
@@ -154,80 +122,50 @@ def test(epoch):
         if not args.parallel:
             inputs = inputs.cuda()
 
-        # print(counts.shape)
-        # counts_check = counts.sum(dim=2)
-        # print(counts_check)
-        # counts_check[counts_check>0] = 1
-        # print(counts_check)
-        # print(counts_check.sum(dim=1))
-        # sys.exit()
-
         inputs = inputs.squeeze(0)
         counts = counts.squeeze(0)
 
         probs = agent(inputs)
 
-        # print('probs', probs.shape)
-        # print('probs', probs)
         # Sample the policy from the agents output
         policy = probs.data.clone()
         policy[policy<0.5] = 0.0
         policy[policy>=0.5] = 1.0
         policy = Variable(policy)
-        # print(policy)
 
         policy_hr = probs.data.clone()
         policy_hr[:] = 1.0
         policy_hr = Variable(policy_hr)
-        # print('policy_hr', policy_hr)
-
     
         counts_map = utils.agent_chosen_input_counts(counts, policy)
         counts_hr = utils.agent_chosen_input_counts(counts, policy_hr)
-        # counts_half = utils.agent_chosen_input_counts(counts, policy_half)
 
-        # print('counts_map', counts_map.shape)
         counts_map_all = counts_map.sum(0).unsqueeze(0)
         counts_hr_all = counts_hr.sum(0).unsqueeze(0)
-        # print('counts_map_all', counts_map_all.shape)
 
         gbdt_sc_map, y_pred = utils.gbdt_score(counts_map_all, targets)
 
-        # gbdt_sc_hr, y_pred = utils.gbdt_score(counts_hr, targets)
-        # print('y_pred', y_pred)
-        # print('targets', targets.numpy())
         y_preds += list(y_pred)
         y_true += list(targets.numpy())
-        # print('y_preds', y_preds)
-        # print('y_true', y_true)
 
         reward, counts_diff_map = utils.compute_reward_gbdt(gbdt_sc_map, policy.data, counts_map, counts_hr)
-        # reward_half, counts_diff_map_half = utils.compute_reward_gbdt(gbdt_sc_map, policy_half.data, counts_half, counts_hr)
-        # print('counts_diff_map', counts_diff_map)
+
 
         counts_diff_map_all = counts_diff_map.sum(0).unsqueeze(0)
         counts_diff.append(counts_diff_map_all)
         rewards.append(reward)
-        # rewards_half.append(reward_half)
         plcy = policy.view(1, -1)
         policies.append(plcy.data)
-        # mse.append(torch.from_numpy(np.array([gbdt_sc_map])))
         mse.append(gbdt_sc_map.cpu())
 
     y_true = [float(i) for i in y_true]
     y_preds = [float(i) for i in y_preds]
-    # print(y_preds)
-    # print(y_true)
-    # print('len(y_true)', len(y_true))
-    # print('len(y_pred)', len(y_preds))
-    # print('len(policies)', len(policies))
-    # print(policies)
+
     r2 = r2_score(y_true, y_preds) 
     mse, reward, sparsity, variance, policy_set, counts_diff = utils.performance_stats_gbdt(policies, rewards, mse, counts_diff)
 
     print('Test - Mse: %.3f | R2: %.3f | Rw: %.2E | S: %.3f | V: %.3f | #: %d | Diff: %.3f'%(mse, r2, reward, sparsity, variance, len(policy_set), counts_diff))
-    # sys.exit()
-    # log_value('test_rewards_objects', rewards_half, epoch)
+
     log_value('test_mse', mse, epoch)
     log_value('test_r2', r2, epoch)
     log_value('test_reward', reward, epoch)
@@ -268,14 +206,6 @@ if args.load is not None:
     agent.load_state_dict(checkpoint['agent'])
     start_epoch = checkpoint['epoch'] + 1
     print('loaded agent from', args.load)
-
-# if args.ckpt_hr_cl is not None:
-#     checkpoint = torch.load(args.ckpt_hr_cl)
-#     if args.model.split('_')[1] == 'C10' or args.model.split('_')[1] == 'C100':
-#         rnet.load_state_dict(checkpoint['state_dict'])
-#     else:
-#         utils.load_weights_to_flatresnet(checkpoint, rnet)
-#     print('loaded the high resolution classifier')
 
 # Parallelize the models if multiple GPUs available - Important for Large Batch Size
 if args.parallel:

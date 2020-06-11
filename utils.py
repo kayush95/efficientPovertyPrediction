@@ -46,7 +46,6 @@ def performance_stats_gbdt(policies, rewards, mse, counts_diff):
     # and variance of sampled num_patches, and number of unique policies
     policies = torch.cat(policies, 0)
     rewards = torch.cat(rewards, 0)
-    # rewards_half = torch.cat(rewards_half, 0)
 
     counts_diff = torch.cat(counts_diff, 0)
     counts_diff = counts_diff.mean()
@@ -59,9 +58,7 @@ def performance_stats_gbdt(policies, rewards, mse, counts_diff):
         mse = mse.mean()
 
     reward = rewards.mean()
-    # rewards_half = rewards_half.mean()
     num_unique_policy = policies.sum(1).mean()
-    # print(policies.sum(1).std())
     variance = policies.sum(1).std()
 
     policy_set = [p.cpu().numpy().astype(np.int).astype(np.str) for p in policies]
@@ -72,49 +69,22 @@ def performance_stats_gbdt(policies, rewards, mse, counts_diff):
 def gbdt_score(v_inputs, targets):
     X_test = v_inputs.cpu().detach().numpy()
     y_true = targets
-    # print('X_test', X_test)
-    # print('y_true', y_true)
     filename = 'gbdt_model_stratified_corrected_1.sav'
     model = pickle.load(open(filename, 'rb'))
     y_pred = torch.tensor(list(model.predict(X_test)))
-    # score = r2_score(y_test, y_pred) 
-    # print(y_true)
-    # print(y_pred)
-    # score = mean_squared_error(y_true, y_pred)
-    # print(y_true)
-    # print(y_pred)
     score = (y_true - y_pred)**2
-    # print('score', score)
-    # print('score.shape', score.shape)
-    # print('type', type(score))
     return score, y_pred
 
 def compute_reward_gbdt(gbdt_sc, policy, counts, counts_hr):
     counts_diff = counts - counts_hr
-    # print('counts_diff.shape', counts_diff.shape)
-    # counts_diff_norm = (torch.norm(counts_diff, p=1, dim=1)/counts_diff.size(1)).cuda().double()
     counts_diff_norm = (torch.norm(counts_diff, p=1, dim=1)).cuda().double()
-    # print('counts_diff_norm.shape', counts_diff_norm.shape)
-    # print('counts_diff_norm', counts_diff_norm)
 
     patch_use = policy.sum(1).float() / policy.size(1)
     sparse_reward = 1.0 - patch_use**2
-    # print('sparse_reward', sparse_reward.shape)
-    # gbdt_sc = torch.from_numpy(np.array([gbdt_sc]))
-    # print('gbdt_sc', gbdt_sc.shape)
-    # print('gbdt_sc.shape', gbdt_sc.shape)
-    # print('gbdt_sc', gbdt_sc)
-    # reward = sparse_reward.double() - gbdt_sc.cuda().double() - counts_diff_norm
     reward = 2.0*sparse_reward.double() - 0.1*counts_diff_norm
 
-    ##### working one
-    # reward = sparse_reward.double() - 0.1*counts_diff_norm
-    #####
-
-    # print('reward.shape', reward.shape)
     counts_diff_norm = counts_diff_norm.unsqueeze(1)
     reward = reward.unsqueeze(1)
-    # print('reward.shape', reward.shape)
     return reward, counts_diff_norm
 
 def compute_reward(preds, targets, policy, penalty):
@@ -300,20 +270,12 @@ def agent_chosen_input(input_org, policy, mappings, interval):
 
 def prob_counts(counts_org, policy):
     counts_full = counts_org.clone()
-    # print(counts_full.shape)
     counts_full = torch.sum(counts_full, dim=2)
-    # counts_full = counts_full[:, :, 3]
     counts_full = counts_full.view(1, -1)
     policy_full = policy.clone()
-    # print(policy_full.shape)
     policy_full = policy_full.view(1, -1)
-
-    # counts_full = counts_full.cpu().detach().numpy()
-    # policy_full = policy_full.cpu().detach().numpy()
     counts_full = counts_full.detach()
     policy_full = policy_full.detach()
-    # print(counts_full)
-    # print(policy_full)
 
     return counts_full, policy_full
 
@@ -322,18 +284,9 @@ def agent_chosen_input_counts(counts_org, policy):
     """
     counts_full = counts_org.clone()
     sampled_counts = torch.zeros(counts_org.shape[0], counts_org.shape[2])
-    # print(counts_full)
-    # print('counts_full.shape', counts_full.shape)
-    # print('sampled_counts.shape', sampled_counts.shape)
-    # print('policy.shape', policy.shape)
-    # print('policy', policy)
     for pl_ind in range(policy.shape[1]):
         mask = (policy[:, pl_ind] == 1).cpu()
-        # print(mask)
-        # print(counts_full[:, pl_ind, :])
         sampled_counts[:, :] += counts_full[:, pl_ind, :].float()*mask.unsqueeze(1).float()
-    # print('sampled_counts.shape', sampled_counts.shape)
-    # print('sampled_counts', sampled_counts)    
     counts_org = sampled_counts
     return counts_org
 
